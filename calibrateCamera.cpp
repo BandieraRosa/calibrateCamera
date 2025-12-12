@@ -26,6 +26,51 @@ static Eigen::VectorXd solve_homogeneous_system(const Eigen::MatrixXd& A)
 }
 
 /**
+ * @brief 计算2D点集的归一化变换（Hartley normalization）
+ *
+ * 将点平移到均值为0，并缩放使平均距离为sqrt(2)，用于改善DLT数值条件。
+ *
+ * @param pts 输入2D点集
+ * @param T 输出3x3归一化矩阵，使得 p_norm ~ T * p
+ * @return bool 若点集可用则返回true，否则false
+ */
+static bool compute_normalization_transform(const std::vector<Eigen::Vector2d>& pts,
+                                            Eigen::Matrix3d& T)
+{
+  if (pts.size() < 2)
+  {
+    return false;
+  }
+
+  Eigen::Vector2d mean(0.0, 0.0);
+  for (const auto& p : pts)
+  {
+    mean += p;
+  }
+  mean /= static_cast<double>(pts.size());
+
+  double mean_dist = 0.0;
+  for (const auto& p : pts)
+  {
+    mean_dist += (p - mean).norm();
+  }
+  mean_dist /= static_cast<double>(pts.size());
+
+  if (mean_dist < 1e-12)
+  {
+    return false;
+  }
+
+  double s = std::sqrt(2.0) / mean_dist;
+  T.setIdentity();
+  T(0, 0) = s;
+  T(1, 1) = s;
+  T(0, 2) = -s * mean.x();
+  T(1, 2) = -s * mean.y();
+  return true;
+}
+
+/**
  * 使用直接线性变换(DLT)算法计算单应性矩阵H
  * 单应性矩阵描述了从世界坐标系到图像坐标系的投影变换关系
  *
@@ -45,12 +90,36 @@ static Eigen::Matrix3d compute_homography_dlt(const std::vector<cv::Point3f>& ob
   int n = static_cast<int>(obj_pts.size());
   Eigen::MatrixXd a(2 * n, 9);
 
+  std::vector<Eigen::Vector2d> obj2d;
+  std::vector<Eigen::Vector2d> img2d;
+  obj2d.reserve(n);
+  img2d.reserve(n);
+
   for (int k = 0; k < n; ++k)
   {
-    double xw = obj_pts[k].x;
-    double yw = obj_pts[k].y;
-    double u = img_pts[k].x;
-    double v = img_pts[k].y;
+    obj2d.emplace_back(obj_pts[k].x, obj_pts[k].y);
+    img2d.emplace_back(img_pts[k].x, img_pts[k].y);
+  }
+
+  Eigen::Matrix3d T_obj, T_img;
+  if (!compute_normalization_transform(obj2d, T_obj) ||
+      !compute_normalization_transform(img2d, T_img))
+  {
+    return Eigen::Matrix3d::Identity();
+  }
+
+  for (int k = 0; k < n; ++k)
+  {
+    Eigen::Vector3d po(obj2d[k].x(), obj2d[k].y(), 1.0);
+    Eigen::Vector3d pi(img2d[k].x(), img2d[k].y(), 1.0);
+
+    Eigen::Vector3d po_n = T_obj * po;
+    Eigen::Vector3d pi_n = T_img * pi;
+
+    double xw = po_n(0);
+    double yw = po_n(1);
+    double u = pi_n(0);
+    double v = pi_n(1);
 
     a(2 * k, 0) = xw;
     a(2 * k, 1) = yw;
@@ -74,8 +143,14 @@ static Eigen::Matrix3d compute_homography_dlt(const std::vector<cv::Point3f>& ob
   }
 
   Eigen::VectorXd h = solve_homogeneous_system(a);
-  Eigen::Matrix3d H;
-  H << h(0), h(1), h(2), h(3), h(4), h(5), h(6), h(7), h(8);
+  Eigen::Matrix3d Hn;
+  Hn << h(0), h(1), h(2), h(3), h(4), h(5), h(6), h(7), h(8);
+
+  Eigen::Matrix3d H = T_img.inverse() * Hn * T_obj;
+  if (std::abs(H(2, 2)) > 1e-12)
+  {
+    H /= H(2, 2);
+  }
   return H;
 }
 
