@@ -94,7 +94,6 @@ static Eigen::Matrix3d compute_homography_dlt(const std::vector<cv::Point3f>& ob
   std::vector<Eigen::Vector2d> img2d;
   obj2d.reserve(n);
   img2d.reserve(n);
-
   for (int k = 0; k < n; ++k)
   {
     obj2d.emplace_back(obj_pts[k].x, obj_pts[k].y);
@@ -390,16 +389,19 @@ static Eigen::Matrix3d project_to_so3(const Eigen::Matrix3d& R_in)
  * 2. 通过约束条件求解相机内参
  * 3. 计算每个视图的外参（旋转和平移）
  * 4. 估计径向畸变参数
+ * 5. 使用LM（OpenCV calibrateCamera）对重投影误差进行非线性优化
  *
  * @param object_points_all 多个视图的世界坐标点集合
  * @param image_points_all 多个视图的图像坐标点集合
+ * @param imageSize 图像尺寸
  * @param cameraMatrix 输出的相机内参矩阵3x3
  * @param distCoeffs 输出的畸变系数向量
  * @return bool 标定成功返回true，失败返回false
  */
 static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points_all,
                       const std::vector<std::vector<cv::Point2f>>& image_points_all,
-                      cv::Mat& cameraMatrix, cv::Mat& distCoeffs)
+                      const cv::Size& imageSize, cv::Mat& cameraMatrix,
+                      cv::Mat& distCoeffs)
 {
   int num_views = static_cast<int>(object_points_all.size());
   if (num_views < 3 || image_points_all.size() != static_cast<size_t>(num_views))
@@ -515,8 +517,8 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
   A_eig << alpha, gamma, u0, 0.0, beta, v0, 0.0, 0.0, 1.0;
 
   std::cout << "\n内参矩阵 A = \n" << A_eig << '\n';
-  std::cout << "fx=" << alpha << ", fy=" << beta << ", skew=" << gamma
-            << ", cx=" << u0 << ", cy=" << v0 << '\n';
+  std::cout << "fx=" << alpha << ", fy=" << beta << ", skew=" << gamma << ", cx=" << u0
+            << ", cy=" << v0 << '\n';
 
   cameraMatrix =
       (cv::Mat_<double>(3, 3) << alpha, gamma, u0, 0.0, beta, v0, 0.0, 0.0, 1.0);
@@ -651,6 +653,13 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
   std::cout << "\n径向畸变: k1=" << k1 << ", k2=" << k2 << '\n';
 
   distCoeffs = (cv::Mat_<double>(1, 5) << k1, k2, 0.0, 0.0, 0.0);
+
+  // 使用LM进行非线性优化：最小化重投影误差
+  std::vector<cv::Mat> rvecs, tvecs;
+  int flags = cv::CALIB_USE_INTRINSIC_GUESS;
+  double rms = cv::calibrateCamera(object_points_all, image_points_all, imageSize,
+                                   cameraMatrix, distCoeffs, rvecs, tvecs, flags);
+  std::cout << "\n[OpenCV LM] RMS reprojection error = " << rms << '\n';
 
   return true;
 }
@@ -868,7 +877,8 @@ int main(int argc, char** argv)
       }
       std::cout << "使用 " << object_points_all.size() << " 帧样本，开始标定..." << '\n';
 
-      bool ok = calibrate(object_points_all, image_points_all, cameraMatrix, distCoeffs);
+      bool ok = calibrate(object_points_all, image_points_all, image_size, cameraMatrix,
+                          distCoeffs);
       if (ok)
       {
         calibrated = true;
