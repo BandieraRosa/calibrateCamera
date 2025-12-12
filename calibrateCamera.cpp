@@ -415,7 +415,7 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
   {
     const auto& obj_pts = object_points_all[i];
     const auto& img_pts = image_points_all[i];
-    if (obj_pts.size() != img_pts.size() || obj_pts.empty())
+    if (obj_pts.size() != img_pts.size() || obj_pts.size() < 4)
     {
       std::cerr << "视图 " << i << " 点数不匹配或为空。" << '\n';
       return false;
@@ -456,10 +456,58 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
   double B23 = b(4);
   double B33 = b(5);
 
-  double v0 = (B12 * B13 - B11 * B23) / (B11 * B22 - B12 * B12);
+  if (B11 < 0.0)
+  {
+    B11 = -B11;
+    B12 = -B12;
+    B22 = -B22;
+    B13 = -B13;
+    B23 = -B23;
+    B33 = -B33;
+  }
+
+  double denom = (B11 * B22 - B12 * B12);
+  if (std::abs(denom) < 1e-18 || B11 <= 0.0)
+  {
+    std::cerr << "[Zhang] 内参求解退化：denom接近0或B11<=0。" << '\n';
+    return false;
+  }
+
+  double v0 = (B12 * B13 - B11 * B23) / denom;
   double lambda = B33 - (B13 * B13 + v0 * (B12 * B13 - B11 * B23)) / B11;
+
+  if (lambda < 0.0)
+  {
+    B11 = -B11;
+    B12 = -B12;
+    B22 = -B22;
+    B13 = -B13;
+    B23 = -B23;
+    B33 = -B33;
+
+    denom = (B11 * B22 - B12 * B12);
+    if (std::abs(denom) < 1e-18 || B11 <= 0.0)
+    {
+      std::cerr << "[Zhang] 内参求解退化：翻符号后仍异常。" << '\n';
+      return false;
+    }
+    v0 = (B12 * B13 - B11 * B23) / denom;
+    lambda = B33 - (B13 * B13 + v0 * (B12 * B13 - B11 * B23)) / B11;
+  }
+
+  if (lambda <= 0.0)
+  {
+    std::cerr << "[Zhang] 内参求解失败：lambda<=0，无法开方。" << '\n';
+    return false;
+  }
+
   double alpha = std::sqrt(lambda / B11);
-  double beta = std::sqrt(lambda * B11 / (B11 * B22 - B12 * B12));
+  double beta = std::sqrt(lambda * B11 / denom);
+  if (!std::isfinite(alpha) || !std::isfinite(beta) || alpha <= 0.0 || beta <= 0.0)
+  {
+    std::cerr << "[Zhang] 内参求解失败：alpha/beta非法。" << '\n';
+    return false;
+  }
   double gamma = -B12 * alpha * alpha * beta / lambda;  // skew
   double u0 = gamma * v0 / beta - B13 * alpha * alpha / lambda;
 
