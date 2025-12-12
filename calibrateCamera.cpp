@@ -469,7 +469,7 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
   double denom = (B11 * B22 - B12 * B12);
   if (std::abs(denom) < 1e-18 || B11 <= 0.0)
   {
-    std::cerr << "[Zhang] 内参求解退化：denom接近0或B11<=0。" << '\n';
+    std::cerr << "内参求解退化：denom接近0或B11<=0。" << '\n';
     return false;
   }
 
@@ -488,7 +488,7 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
     denom = (B11 * B22 - B12 * B12);
     if (std::abs(denom) < 1e-18 || B11 <= 0.0)
     {
-      std::cerr << "[Zhang] 内参求解退化：翻符号后仍异常。" << '\n';
+      std::cerr << "内参求解退化：翻符号后仍异常。" << '\n';
       return false;
     }
     v0 = (B12 * B13 - B11 * B23) / denom;
@@ -497,7 +497,7 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
 
   if (lambda <= 0.0)
   {
-    std::cerr << "[Zhang] 内参求解失败：lambda<=0，无法开方。" << '\n';
+    std::cerr << "内参求解失败：lambda<=0，无法开方。" << '\n';
     return false;
   }
 
@@ -505,7 +505,7 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
   double beta = std::sqrt(lambda * B11 / denom);
   if (!std::isfinite(alpha) || !std::isfinite(beta) || alpha <= 0.0 || beta <= 0.0)
   {
-    std::cerr << "[Zhang] 内参求解失败：alpha/beta非法。" << '\n';
+    std::cerr << "内参求解失败：alpha/beta非法。" << '\n';
     return false;
   }
   double gamma = -B12 * alpha * alpha * beta / lambda;  // skew
@@ -514,8 +514,8 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
   Eigen::Matrix3d A_eig;
   A_eig << alpha, gamma, u0, 0.0, beta, v0, 0.0, 0.0, 1.0;
 
-  std::cout << "\n[Zhang] 内参矩阵 A = \n" << A_eig << '\n';
-  std::cout << "[Zhang] fx=" << alpha << ", fy=" << beta << ", skew=" << gamma
+  std::cout << "\n内参矩阵 A = \n" << A_eig << '\n';
+  std::cout << "fx=" << alpha << ", fy=" << beta << ", skew=" << gamma
             << ", cx=" << u0 << ", cy=" << v0 << '\n';
 
   cameraMatrix =
@@ -571,6 +571,8 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
 
   Eigen::MatrixXd D(2 * total_points, 2);
   Eigen::VectorXd E_vec(2 * total_points);
+  D.setZero();
+  E_vec.setZero();
   size_t row = 0;
 
   for (int i = 0; i < valid_views; ++i)
@@ -591,6 +593,11 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
       double Xc = Pc(0);
       double Yc = Pc(1);
       double Zc = Pc(2);
+
+      if (std::abs(Zc) < 1e-12)
+      {
+        continue;
+      }
 
       double x = Xc / Zc;
       double y = Yc / Zc;
@@ -626,6 +633,15 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
       row++;
     }
   }
+
+  if (row < 8)
+  {
+    std::cerr << "有效投影点过少，畸变估计不稳定。" << '\n';
+    return false;
+  }
+
+  D.conservativeResize(static_cast<Eigen::Index>(row), 2);
+  E_vec.conservativeResize(static_cast<Eigen::Index>(row));
 
   Eigen::Vector2d k_radial = (D.transpose() * D).ldlt().solve(D.transpose() * E_vec);
 
