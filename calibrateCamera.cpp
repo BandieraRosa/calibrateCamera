@@ -598,7 +598,7 @@ int main(int argc, char** argv)
     std::vector<cv::Point2f> corners;
     bool found = cv::findChessboardCorners(
         gray, board_size, corners,
-        cv::CALIB_CB_ADAPTIVE_THRESH + cv::CALIB_CB_NORMALIZE_IMAGE);
+        cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE);
 
     SampleMetrics curMetrics{0, 0, 0, 0};
     bool gotMetrics = false;
