@@ -1,0 +1,44 @@
+# Build directories
+build/
+bin/
+obj/
+
+# IDE-specific files
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# CMake intermediate files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# Ninja build files
+.ninja_deps
+.ninja_log
+build.ninja
+rules.ninja
+
+# Clangd cache files
+.cache/clangd/
+
+# Debugging symbols
+*.dSYM/
+
+# Temporary files
+*.tmp
+*.log
+
+# Valgrind output
+valgrind.out.*
+
+# GDB history
+.gdb_history
+
+# Coverage data
+*.gcda
+*.gcno
