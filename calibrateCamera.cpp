@@ -361,6 +361,29 @@ static void draw_progress_bars(cv::Mat& img, double covX, double covY, double co
 }
 
 /**
+ * @brief 将近似旋转矩阵投影到SO(3)
+ *
+ * 通过SVD：R = U*V^T，并确保det(R)=+1。
+ *
+ * @param R_in 输入3x3矩阵
+ * @return Eigen::Matrix3d 输出最近的旋转矩阵
+ */
+static Eigen::Matrix3d project_to_so3(const Eigen::Matrix3d& R_in)
+{
+  Eigen::JacobiSVD<Eigen::Matrix3d> svd(R_in, Eigen::ComputeFullU | Eigen::ComputeFullV);
+  Eigen::Matrix3d U = svd.matrixU();
+  Eigen::Matrix3d V = svd.matrixV();
+  Eigen::Matrix3d R = U * V.transpose();
+
+  if (R.determinant() < 0.0)
+  {
+    U.col(2) *= -1.0;
+    R = U * V.transpose();
+  }
+  return R;
+}
+
+/**
  * @brief 张正友相机标定算法
  *
  * 1. 计算每个视图的单应性矩阵
@@ -471,6 +494,11 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
     double norm_r1 = r1_tilde.norm();
     double norm_r2 = r2_tilde.norm();
     double lambda_rt = (norm_r1 + norm_r2) / 2.0;
+    if (lambda_rt < 1e-12)
+    {
+      std::cerr << "外参求解失败：lambda_rt过小。" << '\n';
+      return false;
+    }
 
     Eigen::Vector3d r1 = r1_tilde / lambda_rt;
     Eigen::Vector3d r2 = r2_tilde / lambda_rt;
@@ -481,6 +509,7 @@ static bool calibrate(const std::vector<std::vector<cv::Point3f>>& object_points
     R.col(0) = r1;
     R.col(1) = r2;
     R.col(2) = r3;
+    R = project_to_so3(R);
 
     R_list.push_back(R);
     t_list.push_back(t);
